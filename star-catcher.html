@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Star Catcher — a tiny browser game</title>
+<style>
+  body { margin: 0; background: #0b1026; display: flex; flex-direction: column;
+         align-items: center; justify-content: center; height: 100vh;
+         font-family: "Segoe UI", system-ui, sans-serif; color: #eef; }
+  h1 { margin: 0 0 8px; font-size: 28px; letter-spacing: 1px; }
+  p  { margin: 0 0 12px; color: #9db2ff; font-size: 15px; }
+  canvas { background: linear-gradient(#131a3d, #1d2a5e); border: 2px solid #3d5afe;
+           border-radius: 10px; box-shadow: 0 0 30px rgba(61,90,254,.45); }
+</style>
+</head>
+<body>
+<h1>⭐ Star Catcher ⭐</h1>
+<p>Move with mouse or ← → arrow keys. Catch stars, dodge the bombs!</p>
+<canvas id="game" width="640" height="480"></canvas>
+<script>
+"use strict";
+const cv = document.getElementById("game");
+const ctx = cv.getContext("2d");
+const W = cv.width, H = cv.height;
+
+const catcher = { x: W / 2 - 40, y: H - 44, w: 80, h: 16, speed: 6 };
+let items = [];
+let pops = [];
+let score = 0;
+let lives = 3;
+let frame = 0;
+let over = false;
+let keys = {};
+let mouseX = null;
+
+addEventListener("keydown", e => { keys[e.key] = true; if (over && e.key === " ") restart(); });
+addEventListener("keyup",   e => { keys[e.key] = false; });
+cv.addEventListener("mousemove", e => {
+  const r = cv.getBoundingClientRect();
+  mouseX = (e.clientX - r.left) * (W / r.width);
+});
+cv.addEventListener("click", () => { if (over) restart(); });
+
+function restart() {
+  items = []; pops = []; score = 0; lives = 3; frame = 0; over = false;
+  catcher.x = W / 2 - catcher.w / 2;
+}
+
+function spawn() {
+  const bomb = Math.random() < 0.22;
+  items.push({
+    x: 20 + Math.random() * (W - 40),
+    y: -20,
+    r: bomb ? 13 : 11,
+    vy: 2 + Math.random() * 2 + score / 400,
+    bomb
+  });
+}
+
+function drawStar(x, y, r) {
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.beginPath();
+  for (let i = 0; i < 10; i++) {
+    const a = -Math.PI / 2 + i * Math.PI / 5;
+    const rad = i % 2 === 0 ? r : r * 0.45;
+    ctx[i === 0 ? "moveTo" : "lineTo"](Math.cos(a) * rad, Math.sin(a) * rad);
+  }
+  ctx.closePath();
+  ctx.fillStyle = "#ffd54f";
+  ctx.shadowColor = "#ffca28";
+  ctx.shadowBlur = 12;
+  ctx.fill();
+  ctx.restore();
+}
+
+function drawBomb(x, y, r) {
+  ctx.save();
+  ctx.beginPath();
+  ctx.arc(x, y, r, 0, Math.PI * 2);
+  ctx.fillStyle = "#263238";
+  ctx.fill();
+  ctx.strokeStyle = "#90a4ae";
+  ctx.stroke();
+  ctx.fillStyle = "#ff7043";
+  ctx.font = "bold 13px sans-serif";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText("!", x, y + 1);
+  ctx.restore();
+}
+
+function step() {
+  ctx.clearRect(0, 0, W, H);
+
+  // starfield background dots
+  ctx.fillStyle = "rgba(255,255,255,.35)";
+  for (let i = 0; i < 40; i++) {
+    const sx = (i * 97) % W, sy = (i * 61 + frame * (1 + (i % 3))) % H;
+    ctx.fillRect(sx, sy, 2, 2);
+  }
+
+  if (!over) {
+    frame++;
+    if (frame % 30 === 0) spawn();
+
+    if (mouseX !== null) catcher.x = mouseX - catcher.w / 2;
+    if (keys["ArrowLeft"])  catcher.x -= catcher.speed;
+    if (keys["ArrowRight"]) catcher.x += catcher.speed;
+    catcher.x = Math.max(0, Math.min(W - catcher.w, catcher.x));
+
+    for (const it of items) it.y += it.vy;
+
+    items = items.filter(it => {
+      const caught = it.y + it.r >= catcher.y && it.y - it.r <= catcher.y + catcher.h &&
+                     it.x >= catcher.x - it.r && it.x <= catcher.x + catcher.w + it.r;
+      if (caught) {
+        if (it.bomb) { lives--; if (lives <= 0) over = true; }
+        else { score += 10; pops.push({ x: it.x, y: catcher.y, r: 6, a: 1 }); }
+        return false;
+      }
+      if (it.y - it.r > H) {
+        if (!it.bomb) { lives--; if (lives <= 0) over = true; }
+        return false;
+      }
+      return true;
+    });
+  }
+
+  for (const it of items) (it.bomb ? drawBomb : drawStar)(it.x, it.y, it.r);
+
+  // catch pops: expanding golden rings
+  pops = pops.filter(p => p.a > 0);
+  for (const p of pops) {
+    ctx.save();
+    ctx.globalAlpha = p.a;
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+    ctx.strokeStyle = "#ffd54f";
+    ctx.lineWidth = 3;
+    ctx.stroke();
+    ctx.restore();
+    p.r += 2.2; p.a -= 0.05;
+  }
+
+  // catcher: a little basket
+  ctx.fillStyle = "#8d6e63";
+  ctx.beginPath();
+  ctx.moveTo(catcher.x, catcher.y);
+  ctx.lineTo(catcher.x + catcher.w, catcher.y);
+  ctx.lineTo(catcher.x + catcher.w - 10, catcher.y + catcher.h);
+  ctx.lineTo(catcher.x + 10, catcher.y + catcher.h);
+  ctx.closePath();
+  ctx.fill();
+  ctx.fillStyle = "#a1887f";
+  ctx.fillRect(catcher.x - 3, catcher.y - 4, catcher.w + 6, 5);
+
+  // HUD
+  ctx.fillStyle = "#fff";
+  ctx.font = "bold 18px sans-serif";
+  ctx.textAlign = "left";
+  ctx.fillText("Score: " + score, 14, 26);
+  ctx.textAlign = "right";
+  ctx.fillText("Lives: " + "♥".repeat(Math.max(0, lives)), W - 14, 26);
+
+  if (over) {
+    ctx.fillStyle = "rgba(4,6,20,.72)";
+    ctx.fillRect(0, 0, W, H);
+    ctx.fillStyle = "#fff";
+    ctx.textAlign = "center";
+    ctx.font = "bold 42px sans-serif";
+    ctx.fillText("Game Over", W / 2, H / 2 - 20);
+    ctx.font = "22px sans-serif";
+    ctx.fillText("Final score: " + score, W / 2, H / 2 + 22);
+    ctx.font = "16px sans-serif";
+    ctx.fillStyle = "#9db2ff";
+    ctx.fillText("Click or press Space to play again", W / 2, H / 2 + 56);
+  }
+
+  requestAnimationFrame(step);
+}
+requestAnimationFrame(step);
+</script>
+</body>
+</html>
